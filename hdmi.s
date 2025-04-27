@@ -2578,14 +2578,13 @@ convert_byte_tmds: // uint8 input_value
     /*
         params: uint8 input_value
     */
-    push {r1-r4, lr}
+    push {r1-r5, lr}
     mov r4, r0 // save original
     bl convert_byte_tmds_count_1s // count the amount of 1s. 
     mov r3, r0 // save count of 1s
     mov r0, r4 // restore input value
 
-
-    // TODO double check this logic fallows the VESA encoding standards
+    // xor
     ubfx r1, r0, #0, #1
     ubfx r2, r4, #1, #1
     eor r1, r2, r1
@@ -2620,6 +2619,50 @@ convert_byte_tmds: // uint8 input_value
     ubfx r2, r4, #7, #1
     eor r1, r2, r1
     bfi r0, r1, #7, #1
+    mov r5, r0 // save xor
+
+    // nxor
+    ubfx r1, r0, #0, #1
+    ubfx r2, r4, #1, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #1, #1
+
+    ubfx r1, r0, #1, #1
+    ubfx r2, r4, #2, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #2, #1
+
+    ubfx r1, r0, #2, #1
+    ubfx r2, r4, #3, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #3, #1
+
+    ubfx r1, r0, #3, #1
+    ubfx r2, r4, #4, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #4, #1
+
+    ubfx r1, r0, #4, #1
+    ubfx r2, r4, #5, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #5, #1
+
+    ubfx r1, r0, #5, #1
+    ubfx r2, r4, #6, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #6, #1
+
+    ubfx r1, r0, #6, #1
+    ubfx r2, r4, #7, #1
+    eor r1, r2, r1
+    mvn r1, r1
+    bfi r0, r1, #7, #1
 
     // check if use xnor
     mov r2, #0
@@ -2634,20 +2677,16 @@ convert_byte_tmds: // uint8 input_value
     beq convert_byte_tmds_use_xnor
 
     convert_byte_tmds_use_xor:
-    lsl r0, r0, #2
-    orr r0, r0, #2 // set xor
+    orr r0, r5, #0x100 // set xor
     b convert_byte_tmds_end
 
     convert_byte_tmds_use_xnor:
-    mvn r0, r0
-    lsl r0, r0, #2
-    b convert_byte_tmds_end
 
     convert_byte_tmds_end:
-    rbit r0, r0
+    // rbit r0, r0
     // TODO add dc voltage offset
 
-    pop {r1-r4,lr}
+    pop {r1-r5,lr}
     bx lr
  
 convert_byte_tmds_check_xnor1:
@@ -3397,7 +3436,7 @@ check_flash_image_buff: // returns something or 0 depending on buffcontents
     cmp r1, r4
 
     pop {r1-r4}
-    bx lr 
+    bx lr  
 
 reset_hash_mem:
     push {r0-r4,lr}
