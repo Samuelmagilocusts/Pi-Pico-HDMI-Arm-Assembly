@@ -9,13 +9,29 @@ However, I figured, may as well try. I was curious to see what would happen. So 
 
 So, throughout this entire process one of the hardest things, was to configuring a hardware solution that would (in theory) connect the Pico to an HDMI port. I made mine from bits and pieces I had laying around.
 
+<picture>
+    <img src="assets/images/prototype1.jpg" width="500">
+</picture>
+
 It consists of an HDMI port I cut off a PS4 and then soldered wires to. I was able to connect these wires to Pico and we were off to the races. Except for one thing. The Pi Pico high voltage supplied to pins is approximately 3.3 volts. Most monitors require 5v. So, I had to embark on a less-than-ideal side quest to find a proper logic level shifter that would raise or lower the voltage depending on the input. This allows the 3.3v Pi Pico to drive a 5v monitor input. However, this only works if the logic level shifter is powerful enough. I started with the TXB0108 which I purchased from Adafruit. It didn’t work. Using an Oscilloscope, I couldn’t see any wave patterns after the logic level shifter.
 
+<picture>
+    <img src="assets/images/hantek6000.png" width="500">
+</picture>
+
 After some research I found this manual, this statement, “the TXB0108 should not be used in applications such as I2C” (Texas Instruments, 2010). That took the wind out of my sales as I2C is exactly the communication I was trying to complete (HDMI uses I2C on two of the pins to communicate with the monitor for functions such as EDID, HDCP, and so on). This was an annoyance but I quickly found a better logic level shifter from Texas Instruments (actually from the TXB0108’s manual). According to Texas Instruments, “the TXB0108 should not be used in applications such as I2C or 1-Wire where an open-drain driver is connected on the bidirectional data I/O. For these applications, use a device from the TI TXS01xx series of level translators”. So that’s what I bought. The TXS0108. Another 8-channel logic level shifter but this one has higher DC drive output (or so I thought). 
+
+<picture>
+    <img src="assets/images/19626-SparkFun_Level_Shifter_-_8_Channel__TXS01018E_-_SparkFun_Level_Shifter_-_8_Channel__TXS01018E_-01.jpg" width="500">
+</picture>
  
 So, I went through the painful task of removing solder mask from my device (btw, never use solder mask on an unfinished prototype. Don’t ask how I know), unsoldering the old logic level shifter, then re-soldering the new level shifter, and reapply solder mask (because it would be a mess if I didn’t because hardware tech debt). I tested the new logic level shifter but to no avail. No change. I still didn’t see any wave patters after the logic level shifter. This confused me greatly and I spent an embarrassing amount of time chasing wild geese in an effort to discover the truth. 
 
 I spent a lot of time configuring and reconfiguring the pin initialization and setup of the I2C protocol on the Pico, I tried to connecting the I2C to another device to ensure the things were setup properly. This test passed and I proceeded forward. So now I knew that the code I wrote for the I2C connection worked correctly. Which means the issue must be within the hardware, but how? Texas Instruments themselves said the TXS0xxx series of logic level shifters are made to run I2C. Well, after doing some in depth research (In this case I actually just asked an LLM lol), I discovered that the logic level shifter I had been trying to use was meant to go between two chips that are physically close to each other. Not a 50’ HDMI cable (a bit of an exaggeration). I then turned to the internet to see what people actually use to shift voltage and I discovered the MOSFET. 
+
+<picture>
+    <img src="assets/images/71gIztmgiKL.jpg" width="500">
+</picture>
  
 I then discovered a 4-channel level converter available on amazon that was more capable of shifting voltage up and down with a higher DC drive. This means, it can shift the level from 3.3v to 5v correctly in a way that the monitor on the other side will see the changes in voltage and read the lines. So, I bought a ton of these and went to town. Rinse and repeat with the process of removing the TXS0108 from the breadboard and connecting the MOSFET level shifter to it. It was quite a process and I had to use a microscope to see the wires I was soldering because of how small they were. 
 
@@ -31,6 +47,10 @@ It turns out, parsing EDID version 1.3 is pretty complicated in assembly code. F
 For example, part of the EDID converts 10 raw bytes into chromaticity data. The first two bytes are broken up into 2-bit longs chunks which are then concatenated to the rest of the bytes.
 
 In C the code to do this and return a buffer containing these bytes might look something like this:
+
+<picture>
+    <img src="assets/images/code-block-1.png" width="500">
+</picture>
  
 My assembly code that does this same conversion was this:
  
@@ -69,10 +89,10 @@ The third roadblock without spoiling things too much was the amount of variety I
 
 Anyways, the end result was a 1.2Mb .bmp that I would transfer to the Pico over flow-control enabled UART. Yes, the Pico didn’t have enough space to store the whole uncompressed image in RAM, but who cares. I can simply export chunks to the 4MB onboard flash memory. Plenty of space. It just takes a little long because writing to the onboard flash memory of the Pico transfers pretty slowly. So, it is slow, but it achieves the desired result of moving the image to the Pico.
 
--	Bit-Bang the Image.
+##	Bit-Bang the Image.
 Okay, now that the micro controller has the EDID data, we can continue onto pushing frames to the monitor. First, I wish I could look you in the eye and say I wrote a program that inhales an image sent from computer over UART, converts the RGB data to TMDS 10-bit bytes (I’ll explain later), loads buffers into the PIO (programmable input output block that runs asynchronously from the microcontroller CPU and has direct access to the GPIO lines) state machine FIFO and bit-bangs the image to screen in a weekend. Unfortunately, it took me over a month with over 5 major refactors. I had no idea what a crazy ride I was about to embark on.
 
-#	Encoding TMDS: How it works
+##	Encoding TMDS: How it works
 Transition Minimized Differential Signaling (TMDS) is a method of transmitting data to monitors that allows for massive throughput. This technology was invented in the 90’s and is still in use to this day as one of the most common ways to transfer high-speed video/audio data over HDMI, or DVI. Here is how it works.
 Let’s say we want to set a pixel to the color purple (RGB: 157, 3, 252). We would need to convert each byte into a 10-bit long byte. 
 
@@ -99,7 +119,7 @@ So that is how a byte is encoded as TMDS. This must be done for all three bytes 
 
 Now that we’ve covered the basics of TMDS encoding, lets backup a little bit and review  my journey to discover a decent algorithm to use to encode TMDS in ARM assembly.
 
-#	Encoding TMDS: How I did it
+##	Encoding TMDS: How I did it
 First, let me explain why I chose to process TMDS on the Pico instead of encoding the data before I send it to the Pico. The answer is twofold. First, I wanted the Pico to be capable of receiving raw input and doing the rest of the work itself. That way it wouldn’t have to rely on specific input from a computer because at that point the computer may as well do all the work and not both with a micro controller. Second, a little embarrassing since this project never actually worked the way I intended but this was/is supposed to be a portfolio project (for now) so the more I do the hard way, the better (It seems). Also, it really helped me learn a lot about low level programming which is invaluable.
 
 Now I have a little secret to tell you. I didn’t bother doing any dc balancing in my program. It was unnecessary because of how slow the transfer rate would be. So, my assembly code TMDS conversion function would produce a result like this:
@@ -212,7 +232,7 @@ With all of these changes nicely, coded and tested, it was finally time to bit-b
 
 And that’s about it. At this point I’ve released the Raspberry Pi Pico just isn’t fast enough to bit-bang an image to a monitor over HDMI even at the slowest aloud rate. I tried every trick I could to speed up the transfer and I did but its not enough. It was a good attempt I suppose as I did learn a lot. However, It would have been nice to see something one screen even a distorted image.
 
-#	Anecdotes
+##	Anecdotes
 I had a couple random weird things happen in this project I thought I would mention them here at the end of the story.
 
 First, when I started this project, r8-r12 just wouldn’t work with immediate values. 
