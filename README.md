@@ -1,3 +1,11 @@
+## Table of Contents
+- [Overview](#Overview)
+- [Introduction](#Introduction)
+- [EDID](#EDID)
+- [Strings in Assembly Code](#Strings-in-Assembly-Code)
+- [Debugger Broke](#Debugger-Broke)
+- [Loading an image on the Pi Pico](#Loading-an-image-on-the-Pi-Pico)
+
 ##	Overview
 This was an attempt to make the Pi Pico 2 load a 24bit .bmp image and displays it on a monitor via HDMI. I wrote this project mostly in ARM assembly code to maintain more specific control of the system. I figured I would have better control over the use of each cycle. I also choose to use Assembly code for fun of it. Therefore, this is my first big project that I have written in Assembly code. Therefore, please forgive the beginners errors as this project was wholly intended as a learning experience for myself. 
 
@@ -7,6 +15,8 @@ Unfortunately, as of now, there isn’t any point running this code for yourself
 
 However, I figured, may as well try. I was curious to see what would happen. So that’s what I did. I embarked on a three-month journey to try and try again to make a Pi Pico 2 bang bits out 8 pins as fast as it possibly could. Here’s how it went.
 
+
+## Introduction
 So, throughout this entire process one of the hardest things, was to configuring a hardware solution that would (in theory) connect the Pico to an HDMI port. I made mine from bits and pieces I had laying around.
 
 <picture>
@@ -80,7 +90,7 @@ At this time, I took the opportunity to fully redesign the hardware solution tha
   
 This allows me to remove the Pico from the board at the flip of a lever. The HDMI connecter was and is now on its own board with the same kind of reuseable wires attached to it. This enabled the HDMI connecter to be attached or detached as needed.
 
-##	Loading an image on the Pi Pico.
+##	Loading an image on the Pi Pico
 I wasn’t sure if the Raspberry Pi Pico was powerful enough to inhale video and exhale TMDS to a display fast enough. My guess was probably not. So, to start with I figured I may as well send one frame repeatedly as a starting point. So, I decided take an image I had, convert to 848/480, and export as a 24bit RGB .bmp photo that I would simply transfer to the Pico. However, there were several roadblocks in my way. First, a 24-bit .bmp image at that resolution ends up at about 1.2Mb but the Raspberry Pi Pico 2 has 520k of ram. This means even if we used 100% of the Pico’s available RAM, the Pico can’t even hold one frame in memory. This is a problem as you might imagine but ignoring it with a simple TODO and moving on, the second problem, the image takes forever to transfer! 
 
 If transferring at a baud of 1mbps over UART (which is very fast for UART), it took about ten seconds to transfer the image to the Pico. This is way too long if I have any hope sending video at some point. But, once again, I lowered the scope of the project and settled for just an image to send to the monitor. 
