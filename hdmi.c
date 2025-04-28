@@ -192,5 +192,6 @@ const pio_sm_config* tmds_clock_program_get_default_config_asm(uint offset) {
 
 int main() {
     volatile int result = main_asm();
+    
     return result;
 }

@@ -3772,8 +3772,6 @@ main_asm:
     mov r1, #0
     str r1, [r0]
 
-    // TODO add logic to check that the monitor is detected on gpio 7
-
 
 // loop
 main_loop:

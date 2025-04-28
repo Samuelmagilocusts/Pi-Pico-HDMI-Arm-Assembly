@@ -62,6 +62,27 @@ target_link_libraries(hdmi
 )
 ```
 
+Connect GPIO pins as fallows (this can be changed in the hdmi.s file):
+```
+UART
+pin 0 = UART TX
+pin 1 = UART RX
+pin 19 = UART DTR (Only used when inhaling an image)
+
+HDMI
+pin 7 = Hot Plug Detect
+pin 8 = TMDS Data 0+
+pin 9 = TMDS Data 0-
+pin 10 = TMDS Data 1+
+pin 11 = TMDS Data 1-
+pin 12 = TMDS Data 2+
+pin 13 = TMDS Data 2-
+pin 14 = TMDS Clock+
+pin 15 = TMDS Clock-
+```
+
+The instructions are as fallows. Load an image into the Pico via serial, convert the image, then send it. Fallow the on-screen prompts to complete the correct commands.
+
 ## Introduction
 One of the most difficult parts of this project was configuring a hardware solution that would (in theory) connect the Pico to an HDMI port. I cobbled this one together from bits and pieces I had laying around.
 
