@@ -453,6 +453,7 @@ But to sum it up, boy are they expensive and wow does their software suck! I tri
 
 <picture>
     <img src="assets/images/IMG_1094.png" width="300">
+</picture>
 <picture>
     <img src="assets/images/IMG_1095.png" width="300">
 </picture>
