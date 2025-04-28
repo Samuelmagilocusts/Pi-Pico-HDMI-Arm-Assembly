@@ -163,8 +163,11 @@ It took a lot of work to figure out what happened. I thought for sure I had some
 
 <picture>
     <img src="assets/images/IMG_1091.jpg" width="300">
+</picture>
+<picture>
     <img src="assets/images/IMG_1092.jpg" width="300">
 </picture>
+
 
 So now I had no choice but to buy some new micro controllers. I still was unsure what caused the debug port to brake initially but I was wondering if it might be my hardware debugger. The hardware debugger I used was a Raspberry Pi Pico 1 running a special Pico debug firmware that the Raspberry Pi foundation hosts on GitHub. So, I decided to try and bypass that issue by purchasing an official Raspberry Pi Pico Debug Tool and that is the hardware debugger I used for the rest of the project and that debugging port issue didn't return.
 
@@ -172,6 +175,8 @@ At this time, I took the opportunity to fully redesign the hardware solution tha
 
 <picture>
     <img src="assets/images/IMG_1090.jpg" width="300">
+</picture>
+<picture>
     <img src="assets/images/IMG_1089.jpg" width="300">
 </picture>
   
@@ -448,7 +453,10 @@ But to sum it up, boy are they expensive and wow does their software suck! I tri
 
 <picture>
     <img src="assets/images/IMG_1094.png" width="300">
+<picture>
     <img src="assets/images/IMG_1095.png" width="300">
+</picture>
+<picture>
     <img src="assets/images/IMG_1096.png" width="300">
 </picture>
 
