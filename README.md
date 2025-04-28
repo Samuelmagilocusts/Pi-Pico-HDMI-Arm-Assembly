@@ -465,4 +465,4 @@ Either way, what I can say is its really hard to debug things if you can’t ver
 
 
 # Conclusion
-This was an incredible learning Esperance for me. I spent about three months of free time on this project. It went pretty slowly because I was learning a lot of new things I didn’t know before. So hopefully you the reader can learn from my successes and failures in this project and make something better (don't worry I set the bar very low)! Thanks for reading.
+This was an incredible learning experience for me. I spent about three months of free time on this project. It went pretty slowly because I was learning a lot of new things I didn’t know before. So hopefully you the reader can learn from my successes and failures in this project and make something better (don't worry I set the bar very low)! Thanks for reading.
