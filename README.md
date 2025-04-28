@@ -452,13 +452,13 @@ Third, debugging becomes a lot harder when you have to debug an issue and you do
 But to sum it up, boy are they expensive and wow does their software suck! I tried reddit's favorite poor mans scope the Rigal DS1054Z and it was horrible. It was impossible to capture any signal on screen. Before that I had a Omou VDS1022 I got for $15 at yard sale. That thing worked better then the Rigal a $350 scope and it was a headless unit. Unfortunately, it broke, which is how I got into this mess. Now I have the Hantek 6074BC another headless unit (I prefer this) and it’s been fine. It got four channels and it actually works sometimes which is nice. The software leaves room for improvement but overall, its not too bad. I pretty much bought the cheapest scope I could find. 
 
 <picture>
-    <img src="assets/images/IMG_1094.png" width="300">
+    <img src="assets/images/IMG_1094.png" width="200">
 </picture>
 <picture>
-    <img src="assets/images/IMG_1095.png" width="300">
+    <img src="assets/images/IMG_1095.png" width="200">
 </picture>
 <picture>
-    <img src="assets/images/IMG_1096.png" width="300">
+    <img src="assets/images/IMG_1096.png" width="200">
 </picture>
 
 Either way, what I can say is its really hard to debug things if you can’t verify that signals are happening. For a while during this project, I couldn’t do anything because of these Oscilloscope problems I had. So, let that be a lesson to you. Make sure you have good hardware so you can debug your software and be confidant the bug isn't hardware related.
