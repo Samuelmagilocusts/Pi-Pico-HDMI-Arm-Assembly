@@ -41,19 +41,22 @@ One of the most difficult parts of this project was configuring a hardware solut
 <picture>
     <img src="assets/images/prototype1.jpg" width="500">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 It consists of an HDMI port I cut off a PS4 with some soldered wires that are connected to the Pico. The Pico's highest voltage supplied to its GPIO pins is approximately **3.3v**. Most monitors require **5v**. So, I had to embark on a less-than-ideal side quest to find a proper logic level shifter that would raise or lower the voltage depending on the input. This allows the **3.3v** Pico to drive a **5v** monitor input. However, this only works if the logic level shifter is powerful enough. I started with the TXB0108 which I purchased from Adafruit. It didn’t work. Using an Oscilloscope, I couldn’t see any wave patterns after the logic level shifter.
 
 <picture>
     <img src="assets/images/hantek6000.png" width="500">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 After some research I found this manual, this statement, “the TXB0108 should not be used in applications such as I2C” (Texas Instruments, 2010). That took the wind out of my sales as I2C is exactly the communication I was trying to complete (two of the HDMI wires use I2C to communicate with the monitor for functions such as EDID, HDCP, and so on). This was an annoyance but I quickly found a better logic level shifter from Texas Instruments (actually from the TXB0108’s manual). According to Texas Instruments, “the TXB0108 should not be used in applications such as I2C or 1-Wire where an open-drain driver is connected on the bidirectional data I/O. For these applications, use a device from the TI TXS01xx series of level translators”. So that’s what I bought. The TXS0108. Its yet another 8-channel logic level shifter except this one has higher DC drive output (or so I thought). 
 
 <picture>
     <img src="assets/images/19626-SparkFun_Level_Shifter_-_8_Channel__TXS01018E_-_SparkFun_Level_Shifter_-_8_Channel__TXS01018E_-01.jpg" width="300">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 I went through the painful task of removing solder mask from my device (btw, never use solder mask on an unfinished prototype. Don’t ask how I know), unsoldering the old logic level shifter, then re-soldering the new level shifter, and reapplying solder mask (it would be a mess if I didn’t do this. Its basically like tech debt). I tested the new logic level shifter but to no avail. No change. I still didn’t see any wave patters after the logic level shifter. This confused me greatly and I spent an embarrassing amount of time chasing wild geese in an effort to discover the truth. 
 
 I spent a lot of time configuring and reconfiguring the pin initialization and setup of the I2C protocol on the Pico, I tried connecting the controller to another device to ensure the things were setup properly. This test passed and I proceeded forward. I now knew that the code I wrote for the I2C connection worked correctly. Which means the issue must be within the hardware, but how? Texas Instruments themselves said the TXS0xxx series of logic level shifters are made to run I2C. Well, after doing some in depth research (In this case all I asked an LLM lol), I discovered that the logic level shifter I had been trying to use was meant to go between two chips that are physically close to each other. Not through a 50’ HDMI cable (a bit of an exaggeration). I then turned to the internet to see what people actually use to shift voltage and I discovered the MOSFET level shifter. 
@@ -61,7 +64,8 @@ I spent a lot of time configuring and reconfiguring the pin initialization and s
 <picture>
     <img src="assets/images/71gIztmgiKL.jpg" width="300">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 I then discovered a **4-channel** level converter available on amazon that was more capable of shifting voltage up and down with a higher DC drive. This means, it can shift the level from **3.3v** to **5v** correctly in a way that the monitor on the other side will see the changes in voltage and be able to read the data. So, I bought a ton of these and went to town. Rinse and repeat with the process of removing the TXS0108 from the breadboard and connecting the MOSFET level shifter to it. It was quite a process and I had to use a microscope to see the wires I was soldering because of how small they were. 
 
 I discovered during the installation that part of the reason why the TXS0108 never worked is because one of the wires had detached. I had no idea this happened because it was covered by solder mask (which is why I mentioned earlier that solder mask may not be a good idea in prototypes). 
@@ -78,13 +82,15 @@ For example, part of the EDID converts **10-bytes** into chromaticity data. The 
 <picture>
     <img src="assets/images/code-block-1.png" width="600">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 Assembly code that does this same conversion:
 
 <picture>
     <img src="assets/images/code-block-2.png" width="300">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 As you can see, the assembly code instructions used here are much simpler and spread out instead of running a loop. So, this is part of the reason why it took so many instructions to parse this data in assembly code. To be clear, I did still use loops, but only where it was simpler to write it that way then to unroll a loop like I did with the chromaticity.
 
 Now, the tricky part of this EDID decode job was all the branching. For example, the last 72ish bytes in the EDID 1.3, can be used in multiple different ways. It is broken up into **18-byte** chunks and each chunk can either be used as a detailed timing descriptor block or as a monitor descriptor block. Within these options are many different paths that can be taken depending on the manufacture’s specifications. So, it was a royal pain to implement every path that can be taken in the EDID description function. It was also rather difficult to verify all my code actually worked as intended. In fact, there is one path in particular that was not at all tested. There is a whole set of decode instructions to be used if the expected input would be analog instead of digital. This isn’t an intended use case for this project for multiple hardware incompatibility reasons, and because I don’t have a monitor that would read analog over HDMI. Anyways, about half the code I wrote to decode EDID got used by the monitor I used for testing.
@@ -95,7 +101,8 @@ Now is as good a time as any to bring up strings. Strings require a lot of setup
 <picture>
     <img src="assets/images/code-block-3.png" width="250">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 Basically, mark a section as read only data, create a label, and attach to it a ```.asciz``` or ```.ascii``` with some text after it being careful to include new line characters and so on as needed. So this is how I wrote every string. It can be confusing to have random sections of read only data throughout the program so I put all of my strings at the top of the program. A very weird experience. 
 
 Anyways, that’s the easiest part of string handling in assembly code. When the controller needs to print a string (over UART) I chose to pass the string a while loop function I wrote that transfers memory from one buffer to another until it hits a stop character. Then via some math, it is able to determine the length of the string and send that to the UART.
@@ -105,7 +112,8 @@ Now what if I want to add a value to the end the string like one might do in a p
 <picture>
     <img src="assets/images/code-block-4.png" width="400">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 After this my program adds the end of line ASCII character, does the math to get the buffer length, then the UART sends the data stream.
 
 ##	Debugger Broke
@@ -119,6 +127,7 @@ It took a lot of work to figure out what happened. I thought for sure I had some
 <picture>
     <img src="assets/images/IMG_1092.jpg" width="300">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 
 So now I had no choice but to buy some new micro controllers. I still was unsure what caused the debug port to brake initially but I was wondering if it might be my hardware debugger. The hardware debugger I used was a Raspberry Pi Pico 1 running a special Pico debug firmware that the Raspberry Pi foundation hosts on GitHub. So, I decided to try and bypass that issue by purchasing an official Raspberry Pi Pico Debug Tool and that is the hardware debugger I used for the rest of the project and that debugging port issue didn't return.
@@ -131,7 +140,8 @@ At this time, I took the opportunity to fully redesign the hardware solution tha
 <picture>
     <img src="assets/images/IMG_1089.jpg" width="300">
 </picture>
-  
+<div style="margin-bottom: 20px;"></div>
+
 This allowed me to remove the Pico from the board at the flip of a lever. The HDMI connecter was and is now on its own board with the same kind of reuseable wires attached to it. This enabled the HDMI connecter to be attached or detached as needed.
 
 ##	Loading an image on the Pico
@@ -182,6 +192,7 @@ One simple method used to keep track of the deposit in 1s and 0s over the course
 <picture>
     <img src="assets/images/code-block-5.png" width="1000">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 So that is how a byte is encoded as TMDS. This must be done for all three bytes in each pixel. The purple pixel from earlier, 
 ```157, 3, 252 = 10011101, 00000011, 11111100 -> 0100111110, 1011111101, 1011111001```
@@ -222,13 +233,15 @@ The number instructions necessary to pull this off in assembly was quite high. H
 <picture>
     <img src="assets/images/code-block-6.png" width="400">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 Now this code unfortunately was written when I misunderstood how TMDS worked so this function produced dubious TMDS bytes. This is because at the time I didn’t understand how I was to produce the XOR or NXOR result. I thought it was supposed to be XOR’d against a byte of 1s. I also thought the NXOR could simply be a bitwise NOT of the result of the XOR. Wrong on both counts as I would find out latter on. The reason why I didn’t know exactly how to do this is because I for the longest time couldn’t find any documentation or instructions online explaining how to encode TMDS. So, I resorted to asked an LLM how its done. A combination of LLM’s hallucinations and my misinterpretations lead me to a place of confusion and despair. 
 
 <picture>
     <img src="assets/images/code-block-7.png" width="600">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 This was my first attempt to convert an entire horizontal line of the frame to TMDS and then store and return. It was very inefficient if you can’t tell. I would say the biggest mistake I made from a performance perspective here was the loop of ands, shifts, and orrs. That implementation was perhaps the most inefficient way to achieve the desired result. In fact, once I got the entire image bit-banging it took **2.2 seconds** to run an image using this method of on-the-fly translation. At this point I decided to reduce the output from **848/480** to **640/480** which is probably one of the lowest resolutions that HDMI monitors accept. This improved the transfer rate to about **1.9 seconds**.
 
 ## Encoding TMDS: Optimizing conversion
@@ -238,7 +251,8 @@ This is obviously too slow so I had to figure out what was causing the slowdown.
 <picture>
     <img src="assets/images/code-block-8.png" width="200">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 This increased the framerate by more than **200%**, transferring the image in just under a second which is a massive improvement. This worked because of the amount of CPU cycles it takes to complete an **AND**, **ORR**, **LSL**, and **LSR** compared to **UBFX**, **EOR**, and **BFI**. **UBFX** and **BFI** which complete their entire task in **1 cycle**. AND and ORR take much longer.
 
 ## Encoding TMDS: Pre-Calculate TMDS
@@ -248,18 +262,21 @@ This was a massive improvement! However, one second to transfer a frame is still
 <picture>
     <img src="assets/images/code-block-9.png" width="300">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 I finally realized every input **8-bit** value would generate the same **9-bit** value. Either XOR or NXOR. It should be the same every time. So, I wrote this function to build an array of **9-bit** TMDS bytes, and store them in memory. This allowed me to erase a ton of the processing I was doing at run time. Now I would simply load an **8-bit** RGB byte, and use it to index the array of **9-bit** TMDS. Now the process that took a ton of instructions per byte now took just three instructions per byte.
 
 <picture>
     <img src="assets/images/code-block-10.png" width="150">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 I also rewrote my function that converts multiple RGB bytes into TMDS and packs them together so they can be used later. This preprocessing changes how the PIO’s are used. Now it uses one state machine from each of the PIO blocks onboard the Pico to run only 2 lines on each state machine. This means I need only encode two **10-bit** chunks in a **32-bit** word. This is done by switching every other bit of the **20-bits** with the two incoming **10-bit** bytes. This allows the state machine to push 2-bits at a time to two separate lines. 
  
 <picture>
     <img src="assets/images/code-block-11.png" width="600">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 These two changes increased my framerate by more than **400%** transferring the image in about **225 milliseconds**. This was a massive improvement, but still not enough.
 
@@ -282,7 +299,8 @@ I did want to mention this implementation was pretty cool even though it wasn’
 <picture>
     <img src="assets/images/code-block-12.png" width="500">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 This allowed me to fully reuse the code I had written initially when I was using just one buffer. Something like this really isn’t that impressive in your average high-level language but implementing it in assembly code I thought was pretty cool.
 
 ## Refactor Store in Flash
@@ -310,6 +328,7 @@ RHE can be very useful if there are large amounts of continuous data, but if the
 <picture>
     <img src="assets/images/ibuybrokentech-high-resolution-logo-480.640.bmp" width="300">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 ## Run Length Encoding Part 2: Regression is Progression in the End
  
@@ -330,7 +349,8 @@ With this result returned, (which would be the number representing the number of
 <picture>
     <img src="assets/images/code-block-13.png" width="550">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 As you might have guessed, this hash map provided the ability to build a list of unique pointers to horizontal lines in memory. This would allow the program to reread the same memory from the same place again instead of reading the entire flash memory. This was a massive improvement to the performance of this program in the long run. 
 
 ## Chaining DMA Channels
@@ -354,7 +374,8 @@ I opened GIMP and made a blank image that was totally black (tons of 0s) and the
 <picture>
     <img src="assets/images/most compressible image 640.480p black.bmp" width="300">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 In my python image loading script I added a function that would test RLE so I could verify that the image would be small enough to fit into the Pico’s RAM.
 
 With my current allocation, the buffer I intended to fit the image in was **350KB**. Doing the math, I would be able to fit **219 horizontal lines** in this buffer. The new image I created cost **370 horizonal lines** or so. This threw me for a loop because my python script reported a much smaller number in the 100s. I spent some time debugging and trying to figure out why this was happening. Eventually I realized this was because the python script was counting the raw bytes of the image coming in whare as the controller was counter the final encoded lines. Very different in size. Anyways, once I realized this I went back to gimp and made the text in the image much smaller. 
@@ -362,7 +383,8 @@ With my current allocation, the buffer I intended to fit the image in was **350K
 <picture>
     <img src="assets/images/most compressible image white 640.480p smaller words.bmp" width="300">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 This worked! Now the number of lines to load into RAM totaled around **120**. Well within the limit. 
 
 ## Final Result
@@ -382,6 +404,7 @@ This led me to a place of confusion and delay. A pit that I couldn't climb my wa
 <picture>
     <img src="assets/images/code-block-17.png" width="360">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 
 **Third bug**, I changed the code that loads buffer pointers into DMA channels and waits for them to complete. I was trying to use the “chain_to” API to ensure DMA channels are constantly feeding the PIO state machines. However, I couldn't get this to work. What did work was striping the SDK functions that waits for DMA channels to complete to their core which allowed the program to check a DMA channel status and once it is ready, update the read address and restart the channel. All this in about 5 CPU instructions. This massively reduced the latency between channel resets which turned out to be crucial for a successful stream. 
@@ -389,6 +412,7 @@ This led me to a place of confusion and delay. A pit that I couldn't climb my wa
 <picture>
     <img src="assets/images/code-block-16.png" width="360">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 
 **Forth bug** - My nice hot glued hardware setup doesn’t work. I tested someone else’s confirmed working code and it just doesn’t work. However, I found a new hardware solution from Adafruit that cost only a few dollars and solders directly to the Pico pins. It only caries data, clock, and ground lines by default. 
@@ -408,6 +432,7 @@ After all of these changes (especially the last one) the monitor would now displ
 <picture>
     <img src="assets/images/tmds_color.jpg" width="500">
 </picture>
+<div style="margin-bottom: 20px;"></div>
 
 ##	Anecdotes
 I had a couple random weird things happen in this project I thought I would mention them here at the end of the story.
@@ -422,7 +447,8 @@ This instruction never compiled and would throw an error. By the end this journe
 <picture>
     <img src="assets/images/code-block-14.png" width="160">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 Now instruction with **r8-r12** worked with immediate values. Pretty cool! I can learn not to look a gift horse in the mouth.
 
 
@@ -432,7 +458,8 @@ Second, I had to implement floating point numbers and they are rather interestin
 <picture>
     <img src="assets/images/code-block-15.png" width="350">
 </picture>
- 
+<div style="margin-bottom: 20px;"></div>
+
 The program has to get the number that’s to the left of the decimal and convert that to int and store it, then take the number to the right of the decimal, multiply it by a massive number to bring all the decimal above 1 then convert int and store. It was pretty cool. Nice to see what’s going on under the hood when I use a float in a high-level language.
 
 
@@ -450,7 +477,7 @@ To sum it up, boy are they expensive and wow does their software suck! I tried r
 <picture>
     <img src="assets/images/IMG_1096.png" width="200">
 </picture>
-
+<div style="margin-bottom: 20px;"></div>
 Either way, what I can say is its really hard to debug things if you can’t verify that signals are happening. For a while during this project, I couldn’t do anything because of these Oscilloscope problems I had. So, let that be a lesson to you. Make sure you have good hardware so you can debug your software and be confidant the bug isn't hardware related.
 
 
