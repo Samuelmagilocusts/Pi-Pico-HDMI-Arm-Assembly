@@ -3787,7 +3787,7 @@ main_loop:
     // uart write
     ldr r0, =0x40070000
     ldr r1, =message_output_startup
-    mov r2, #334
+    mov r2, #330
     bl uart_send
 
     // uart read
