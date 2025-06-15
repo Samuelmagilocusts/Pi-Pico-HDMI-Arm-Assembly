@@ -1,4 +1,4 @@
-# Bit-Banging TMDS over HDMI via the Raspberry Pi Pico 2 written in Raw ARM v8m Assembly Code
+# Bit-Banging TMDS over HDMI via the Raspberry Pi Pico 2 written in ARM v8m Assembly Code
 Some people spend their free time hanging out with friends, some people read books, and some people sit at a desk in their room for three months creating a project that is doomed to fail from the get go. One of those three options accurately describes me.
  
 ## Table of Contents
@@ -29,59 +29,11 @@ Some people spend their free time hanging out with friends, some people read boo
 ##	Overview
 This was an attempt to make the Pi Pico 2 load a **24-bit** .bmp image and send it to a monitor via HDMI. I wrote this project mostly in ARM assembly code to maintain granular control of the system. I figured I would have better control over the use of each CPU cycle in Assembly Code. 
 
-Some of the Raspberry Pi Pico 2 SDK functions were of the type inline static. For those functions, I made some wrapper functions in main.c. To some it up, all the code that does anything I wrote in raw assembly code, and the only C code I wrote were wrapper functions. I didn’t even use printf (which was I regret as it would have made my life so much easier).
+Some of the Raspberry Pi Pico 2 SDK functions were of the type inline static. For those functions, I made some wrapper functions in main.c. To some it up, all the code that does anything I wrote in raw assembly code, and the only C code I wrote are wrapper functions. I didn’t even use printf (which I regret as it would have made this project so much easier).
 
-Unfortunately, as of now, there isn’t any point running this code for yourself as it doesn’t really do anything. The minimum resolution supported according to **VISA HDMI 1.3** standards, is **640x480p** at **60hz**. This requires a pixel-rate around **25mhz** which works out to about **250mbps**. The Pi Pico 2’s clock-rate is **150mhz** meaning that even if one could write code to transfer 1 bit per clock cycle, the max transfer speed wouldn’t be fast enough.
+To set the stakes, the minimum resolution supported according to **VISA HDMI 1.3** standards, is **640x480p** at **60hz**. This requires a pixel-rate around **25mhz** which works out to about **250mbps**. The Pi Pico 2’s clock-rate is **150mhz** meaning that even if one could write code to transfer 1 bit per clock cycle, the max transfer speed wouldn’t be fast enough. However, I was curious to see what would happen. So I embarked on a multi-month journey to try and try again to make a Pi Pico 2 bang bits out 8 pins as fast as it possibly could. Here’s how it went.
 
-However, I figured, may as well try. I was curious to see what would happen. So that’s what I did. I embarked on a three-month journey to try and try again to make a Pi Pico 2 bang bits out 8 pins as fast as it possibly could. Here’s how it went.
-
-## Usage
-Here are the requirements to run this project:
-- Raspberry Pi Pico 2
-- Raspberry Pi Pico 2 SDK (I used the VS Code extension)
-
-Modifications to the CMakeLists.txt file:
-
-```
-# Add executable. Default name is the project name, version 0.1
-add_executable(hdmi hdmi.c "hdmi.s" uart.s)
-
-# Add any user requested libraries
-target_link_libraries(hdmi 
-    pico_stdlib
-    pico_printf
-    pico_stdio
-    hardware_pio
-    hardware_i2c
-    hardware_dma
-    hardware_flash
-    hardware_gpio
-    hardware_timer
-    hardware_uart
-    hardware_sync
-)
-```
-
-Connect GPIO pins as fallows (this can be changed in the hdmi.s file):
-```
-UART
-pin 0 = UART TX
-pin 1 = UART RX
-pin 19 = UART DTR (Only used when inhaling an image)
-
-HDMI
-pin 7 = Hot Plug Detect
-pin 8 = TMDS Data 0+
-pin 9 = TMDS Data 0-
-pin 10 = TMDS Data 1+
-pin 11 = TMDS Data 1-
-pin 12 = TMDS Data 2+
-pin 13 = TMDS Data 2-
-pin 14 = TMDS Clock+
-pin 15 = TMDS Clock-
-```
-
-The instructions are as fallows. Load an image into the Pico via serial, convert the image, then send it. Fallow the on-screen prompts to complete the correct commands.
+*Skip to the end for usage instructions.*
 
 ## Introduction
 One of the most difficult parts of this project was configuring a hardware solution that would (in theory) connect the Pico to an HDMI port. I cobbled this one together from bits and pieces I had laying around.
@@ -417,7 +369,45 @@ This worked! Now the number of lines to load into RAM totaled around **120**. We
 
 With all of these changes nicely, coded and tested, it was finally time to bit-bang this image again and see if I now would see something on screen. This test would finally push bits as fast as they can possibly go. And they did go fast. The program was now transferring a frame every **18 milliseconds**. That’s about **55hz**. Unfortunately, the monitor still reported no signal. Meaning, that its not good enough. The program pushed full system clock speed but it just wasn’t good enough. The monitor said no.
 
-And that’s about it. At this point I’ve released the Raspberry Pi Pico just isn’t fast enough to bit-bang an image to a monitor over HDMI even at the slowest aloud rate. I tried every trick I could to speed up the transfer and I did, but its not enough. It was a good attempt I suppose as I did learn a lot. However, It would have been nice to see something one screen even a distorted image.
+And that’s about it is what I thought, but a few weeks later I was on the Adafruit website and discovered someone else had made HDMI happen already on the original Pico (Pico 2040) which is crazy since the original Pico is slower and less capable. So how did they do it, the programmer overclocked the snot out of it that’s how. It turns out the Pico series of chips can be overclocked way past its max clock rate. By default, the original Pico runs at **125mhz** but the system clock needs to run at **252mhz** to bit-bang **640/480 60hz** and believe it or not the Pico series are completely capable of overclocking to this speed. This is incredible as that means the original Pico would be running over twice its original speed. Absolutely wild. Overclocks like this aren't really possible anywhere else in computing. 
+
+The Raspberry Pi Pico SDK comes with a python script that allows the programmer to enter their desired clock speed in the terminal and run it. The result is a block of cmake code applies changes to the voltages and clocks that are necessary to maintain the desired clock rate. I added a few lines to the script to automatically add/replace the clock rate settings in the projects CMakeLists.txt file. After this, I can launch the program and the Pico 2 will run at said desired clock and boom the framerate ran at exactly 60hz and the monitor now would turn on but unfortunately would display the message "No Signal".
+
+This led me to a place of confusion and delay. A pit that I couldn't climb my way out of for over a month. I went down pretty much every rabbit hole but usually they turned out to be wild goose chases. My journey down those paths would be pretty boring to recount so I'll just show you the results.
+
+**First bug** - The vsync/hsync 10bit bytes and the rest of the blanking periods in general were misconfigured. I had to change the order that these control codes were placed in and I had to change the quantities of these codes. I had written the program to start by pushing the video frame then run all the vsync/hsync control codes. However, I discovered by looking at others code (that I found through Adafruit) that I should actually be running all the sync data first then the video data. 
+
+**Second bug** - I misunderstood how the NOT-XOR part of the TMDS encoding algorithm should work. My initial code would get the XOR result then it would simply invert the XOR result. What the algorithm actually needed to do was move bit by bit through the TMDS byte and perform a NXOR on that bit then store the resulting bit (this is the same process used to derive the XOR encoded byte). This produces a very different result. I also added the code to dc balancing the TMDS bytes. I did this just because at that time I didn’t know what else to try to make this thing work. It turns out to be unnecessary for this build. I also learned that if a TMDS byte has 7 or more transitions then the monitor will think it is reading a control code. So, it’s important to verify all possible results from the TMDS data algorithm will produce bytes with 6 or less transitions. 
+
+<picture>
+    <img src="assets/images/code-block-17.png" width="360">
+</picture>
+
+
+**Third bug**, I changed the code that loads buffer pointers into DMA channels and waits for them to complete. I was trying to use the “chain_to” API to ensure DMA channels are constantly feeding the PIO state machines. However, I couldn't get this to work. What did work was striping the SDK functions that waits for DMA channels to complete to their core which allowed the program to check a DMA channel status and once it is ready, update the read address and restart the channel. All this in about 5 CPU instructions. This massively reduced the latency between channel resets which turned out to be crucial for a successful stream. 
+
+<picture>
+    <img src="assets/images/code-block-16.png" width="360">
+</picture>
+
+
+**Forth bug** - My nice hot glued hardware setup doesn’t work. I tested someone else’s confirmed working code and it just doesn’t work. However, I found a new hardware solution from Adafruit that cost only a few dollars and solders directly to the Pico pins. It only caries data, clock, and ground lines by default. 
+
+**Last bug** - I had made all of these changes stated above and a few more but the monitor still wouldn't display an image. It would only turn on and off and at best say it hadn't received an image. I was trying out another PIO technique when I discovered the bug. Not just a bug, but The bug. This was the reason why no image would display. 
+
+Recall that the program uses 6 DMA channels to feed 6 separate PIO State machines (one for each data line). Also, recall that the Pico 2 has **3 PIO blocks** each capable or running **4 state machines simultaneously**. So, this means that 4 of the lines are **sharing a PIO block**. This is fine however, I had misinterpreted how that worked had written some bugs. Each PIO block can hold **32 total instructions**. All of the PIO block's state machines must share this instruction space and here's where the bug comes in, these state machines can use the exact same instructions. Each state machine was doing the same thing (push 1 bit to its pin) and so I had thought it would make sense to reuse the same PIO program for each of these state machines. However, what this actually means, is that each state machine was trying to use instruction 0 to at the same time which mixed the data from all these state machines together resulting in undefined output. 
+
+I can't adequately describe the feeling I had when I realized this but let’s just say I felt very silly. Had I done a better job reading the RP2350 manual I would have realized this bug earlier. This was a good lesson to learn. I need to make sure I know what things I write are doing otherwise they probably will cause me trouble. Anyways, the solution to this bug was to make an individual program for each PIO state machine and set an offset to where each one’s instruction gets stored in the block's instruction memory to ensure no overwrites. 
+
+After all of these changes (especially the last one) the monitor would now display an image. I did some testing and discovered that my TMDS conversion algorithm also worked. I could pick an RGB color and send it to the screen and the resulting color looked correct. This is actually DVI technically since this project doesn’t send control or audio data during the blanking period (however, I do plan on doing this in future projects). Anyways, here is a photo I took from my phone showing the classic Hello World image that was bit-banged from an overclocked Raspberry Pi Pico 2 with a program written in Arm Assembly.
+
+<picture>
+    <img src="assets/images/hello_world.jpg" width="500">
+</picture>
+
+<picture>
+    <img src="assets/images/tmds_color.jpg" width="500">
+</picture>
 
 ##	Anecdotes
 I had a couple random weird things happen in this project I thought I would mention them here at the end of the story.
@@ -449,7 +439,7 @@ The program has to get the number that’s to the left of the decimal and conver
 
 Third, debugging becomes a lot harder when you have to debug an issue and you don’t know if it’s a hardware failure or software failure. Several times I went down a wild goose chase just to discover I had been chasing an issue that existed in a different realm. A tool that is supposed to in theory help with this is the Oscilloscope. You may have noticed I reference use of an Oscilloscope throughout this story. Well, I could pretty much write a mini story about my Oscilloscope Journey.
 
-But to sum it up, boy are they expensive and wow does their software suck! I tried reddit's favorite poor mans scope the Rigal DS1054Z and it was horrible. It was impossible to capture any signal on screen. Before that I had a Omou VDS1022 I got for $15 at yard sale. That thing worked better then the Rigal a $350 scope and it was a headless unit. Unfortunately, it broke, which is how I got into this mess. Now I have the Hantek 6074BC another headless unit (I prefer this) and it’s been fine. It got four channels and it actually works sometimes which is nice. The software leaves room for improvement but overall, its not too bad. I pretty much bought the cheapest scope I could find. 
+To sum it up, boy are they expensive and wow does their software suck! I tried reddit's favorite poor mans scope the Rigal DS1054Z and it was horrible. It was impossible to capture any signal on screen. Before that I had a Omou VDS1022 I got for $15 at yard sale. That thing worked better then the Rigal a $350 scope and it was a headless unit. Unfortunately, it broke, which is how I got into this mess. Now I have the Hantek 6074BC another headless unit (I prefer this) and it’s been fine. It got four channels and it actually works sometimes which is nice. The software leaves room for improvement but overall, its not too bad. I pretty much bought the cheapest scope I could find. (Me from the future, the Hantek software useless for recording. I wanted to capture an entire from for data and it just wasn't possible. Do not buy this Oscilloscope).
 
 <picture>
     <img src="assets/images/IMG_1094.png" width="200">
@@ -465,4 +455,82 @@ Either way, what I can say is its really hard to debug things if you can’t ver
 
 
 # Conclusion
-This was an incredible learning experience for me. I spent about three months of free time on this project. It went pretty slowly because I was learning a lot of new things I didn’t know before. So hopefully you the reader can learn from my successes and failures in this project and make something better (don't worry I set the bar very low)! Thanks for reading.
+This was an incredible learning experience for me. I spent several months of free time on this project. It went pretty slowly because I had to learn a lot of new things along the way. Hopefully, the next project will progress much quicklier. I am happy I wrote this program in Assembly Code simply for the experience. However, in the future I’ll probably only be writing Assembly if I need something more deterministic, or if I need to use SIMD operations. C takes less time to write equivalent code. So hopefully you the reader can learn from my successes and failures in this project and make something better (don't worry I set the bar very low)! Thanks for reading.
+
+
+
+
+# Usage
+Here are the requirements to run this project:
+- Raspberry Pi Pico 2
+- Raspberry Pi Pico 2 SDK (I used the VS Code extension)
+
+Modifications to the CMakeLists.txt file:
+
+```
+# Add executable. Default name is the project name, version 0.1
+add_executable(hdmi hdmi.c "hdmi.s")
+
+# Add any user requested libraries
+target_link_libraries(hdmi 
+    pico_stdlib
+    pico_printf
+    pico_stdio
+    hardware_pio
+    hardware_i2c
+    hardware_dma
+    hardware_flash
+    hardware_gpio
+    hardware_timer
+    hardware_uart
+    hardware_sync
+)
+
+# This overclocks the PICO 2. USE AT YOUR OWN RISK!
+target_compile_definitions(hdmi PRIVATE
+	PLL_SYS_REFDIV=1
+	PLL_SYS_VCO_FREQ_HZ=756000000
+	PLL_SYS_POSTDIV1=3
+	PLL_SYS_POSTDIV2=1
+	SYS_CLK_HZ=252000000
+)
+```
+
+Connect GPIO pins as fallows (this can be changed in the hdmi.s file):
+```
+UART
+pin 0 = UART TX
+pin 1 = UART RX
+pin 2 = UART DTR (Only used when inhaling an image)
+
+HDMI
+pin 12 = TMDS Data 0+
+pin 13 = TMDS Data 0-
+pin 18 = TMDS Data 1+
+pin 19 = TMDS Data 1-
+pin 16 = TMDS Data 2+
+pin 17 = TMDS Data 2-
+pin 14 = TMDS Clock+
+pin 15 = TMDS Clock-
+
+EDID (optional)
+pin 4 = SDA
+pin 5 = SCL
+
+```
+
+Instructions: 
+
+*Fallow the on-screen prompts to complete the correct commands.*
+
+I've included a binary (.uf2) you can use if you don't want to build the project.
+
+1. Load just the data of an image (delete the header) into the Pico via serial (I used a python script). The baud is 921600. **Make Sure the image has no more than 289 unique horizontal lines (count red, green, and blue lines separately) or it won’t fit in ram*
+2. Open a serial terminal and send the letter 'c' to convert and store the image. 
+3. Press 'y' to bit-bang image to screen. This will run infinitely.
+
+When an image is converted and stored, it is actually stored in flash memory. So, before you store a new image you must delete the old flash memory 'z'.
+
+Once the data is stored in flash, the next time you start the Pico 2, simply press 'c' to load the already converted data from flash memory. Then press 'y' to send the image.
+
+

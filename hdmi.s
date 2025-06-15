@@ -9,7 +9,7 @@ message_output_inhale_image:
     .asciz "\nNew Image Inhaled!\n"
 
 message_output_startup:
-    .asciz "\nInput: c convert & store image loaded in flash and/or load buffs into ram, d to output edid, e to inhale new image, k print image, r get edid from hdmi, t decode edid, u test pio timing, v unused, w print stored image hashmap, y to bit-bang hashed image stored in ram, z to erase all flash mem, x close\n"
+    .asciz "\nInput: c convert & store image loaded in flash and/or load buffs into ram, d to output edid, e to inhale new image, k print image, r get edid from hdmi, t decode edid, u test pio timing, v run length decode image over uart, w print stored image hashmap, y to bit-bang hashed image stored in ram, z to erase all flash mem, x close\n"
 
 image_too_large_text: // 
     .asciz "Image size too large!\n"
@@ -407,6 +407,9 @@ flash_erased:
 flash_buff_pointers_to_ram:
     .asciz "Frame buff pointers copied from flash to ram!\n\0"
 
+value_text:
+    .asciz "Value: \0"
+
 .section .data 
 xip_base: .int 0x10000000
 image_edid_offset: .int 0x10000
@@ -471,7 +474,10 @@ frame_line_pointers_offset:
 .space 24
 amount_of_lines:
 .space 4
-
+v_sync_border:
+.space 16384
+disparity:
+.space 12
 
 .section .text
     .global main_asm
@@ -495,7 +501,7 @@ setup_dma: // enum dreq_num_rp2350 dreq, volatile void tx_buff, volatile void* r
     mov r12, r3 // size
 
     // dma_claim_unused_channel
-    mov r0, #1
+    mov r0, #0
     ldr r1, =dma_claim_unused_channel
     push {r8-r12, lr}
     blx r1
@@ -510,6 +516,7 @@ setup_dma: // enum dreq_num_rp2350 dreq, volatile void tx_buff, volatile void* r
     mov r6, r0 // leave channel config in r0
 
     // channel_config_set_transfer_data_size
+    mov r0, r6
     mov r1, 1 // DMA_SIZE_16
     ldr r2, =channel_config_set_transfer_data_size_asm
     push {lr}
@@ -517,15 +524,20 @@ setup_dma: // enum dreq_num_rp2350 dreq, volatile void tx_buff, volatile void* r
     pop {lr}
 
     // channel_config_set_dreq
+    mov r0, r6
     mov r1, r8
     ldr r2, =channel_config_set_dreq_asm
     push {r6-r12, lr}
     blx r2
     pop {r6-r12, lr}
 
+    // channel_config_set_irq_quiet
+    mov r1, #1
+    bl channel_config_set_quiet_asm
+
     // dma_channel_configure
-    mov r1, r0 // channel config
     mov r0, r7 // channel
+    mov r1, r6 // channel config
     mov r2, r10 // tx
     mov r3, r11 // rx
     mov r4, r12 // counts
@@ -542,15 +554,17 @@ setup_dma: // enum dreq_num_rp2350 dreq, volatile void tx_buff, volatile void* r
     bx lr
 
 setup_pio: // params: uint8 pin, uint8 state_machine, pio. returns: r0 = dreq.
-    push {r0-r12, lr}
+    push {r1-r12, lr}
     
     mov r9, r1 // state machine
     mov r10, r2 // pio
     mov r11, r0 // pin
+    mov r12, r3 // program number
 
     // pio_add_program
-    ldr r0, =tmds_program_asm //0x10007a38 // maybe add name of func instead
-    blx r0
+    mov r0, r12
+    ldr r1, =tmds_program_asm //0x10007a38 // maybe add name of func instead
+    blx r1
 
     push {r9-r11}
     mov r1, r0
@@ -563,6 +577,7 @@ setup_pio: // params: uint8 pin, uint8 state_machine, pio. returns: r0 = dreq.
     // tmds_program_get_default_config
     push {r8-r11}
     mov r0, r8 
+    mov r1, r12
     ldr r2, =tmds_program_get_default_config_asm
     blx r2
     mov r7, r0 // state machine config
@@ -600,7 +615,7 @@ setup_pio: // params: uint8 pin, uint8 state_machine, pio. returns: r0 = dreq.
     mov r3, #1 // amount of pins
     mov r4, #1 // out or in
     push {r4, r7-r11}
-    ldr r5, =pio_sm_set_consecutive_pindirs
+    ldr r5, =pio_sm_set_consecutive_pindirs_asm
     blx r5
     pop {r4, r7-r11}
 
@@ -630,16 +645,15 @@ setup_pio: // params: uint8 pin, uint8 state_machine, pio. returns: r0 = dreq.
     blx r3
     pop {r7-r12, lr}
 
-    pop {r0-r12, lr}
+    pop {r1-r12, lr}
     bx lr
     .ltorg
 
-setup_pio_clock_pin: // uint8 start_pin, uint8 pin_count, uint8 state_machine, pio
+setup_pio_clock_pin: // uint8 start_pin, uint8 state_machine, pio
     push {r0-r12, lr}
-    mov r9, r3 // state machine
+    mov r9, r1 // state machine
     mov r10, r2 // pio1
     mov r11, r0 // start_pin
-    mov r12, r1 // pin_count
 
     // pio_add_program
     push {r9-r12}
@@ -659,18 +673,16 @@ setup_pio_clock_pin: // uint8 start_pin, uint8 pin_count, uint8 state_machine, p
     mov r7, r0 // state machine config
     pop {r8-r12}
 
-    // sm_config_set_set_pins
-    push {r7-r12}
+    push {r8-r12}
+    mov r0, r7
     mov r1, r11
-    mov r2, r12
-    ldr r3, =sm_config_set_set_pins_asm
-    blx r3
-    pop {r7-r12}
+    blx sm_config_set_sideset_pin_base_asm
+    pop {r8-r12}
 
     // pio_gpio_init
     mov r0, r10
     mov r1, r11
-    add r2, r11, r12
+    add r2, r11, #2
     ldr r4, =pio_gpio_init_asm
     setup_pio_clock_init_pins:
         push {r0-r3, r12}
@@ -683,10 +695,10 @@ setup_pio_clock_pin: // uint8 start_pin, uint8 pin_count, uint8 state_machine, p
     // pio_sm_set_consecutive_pindirs
     mov r1, r9
     mov r2, r11
-    mov r3, r12
+    mov r3, #2
     mov r4, #1
     push {r4, r7-r12}
-    ldr r5, =pio_sm_set_consecutive_pindirs
+    ldr r5, =pio_sm_set_consecutive_pindirs_asm
     blx r5
     pop {r4, r7-r12}
 
@@ -2664,13 +2676,14 @@ convert_byte_tmds: // uint8 input_value
     mvn r1, r1
     bfi r0, r1, #7, #1
 
-    // check if use xnor
+    // check if use nxor
     mov r2, #0
     cmp r3, #4 // if count >= 4
-    bge convert_byte_tmds_check_xnor1
+    bgt convert_byte_tmds_use_xnor
+    beq convert_byte_tmds_check_xnor1
     b convert_byte_tmds_use_xor
     
-    convert_byte_tmds_check_xnor1_return: // second xnor check
+    convert_byte_tmds_check_xnor1_return: // second nxor check
     and r1, r4, #1 // check lsb == 0
     add r1, r2, r1 // add last results to this check
     cmp r1, #52 // with offset from r2
@@ -2683,16 +2696,63 @@ convert_byte_tmds: // uint8 input_value
     convert_byte_tmds_use_xnor:
 
     convert_byte_tmds_end:
-    // rbit r0, r0
-    // TODO add dc voltage offset
+    
 
     pop {r1-r5,lr}
     bx lr
  
 convert_byte_tmds_check_xnor1:
-    mov r2, #52 // add a offset so as to find flag an if check. (random number i picked i.e. b52 stratofortress)
+    // add a offset so as to find flag an if check. 
+    // (random number i picked i.e. b52 stratofortress)
+    mov r2, #52 
     b convert_byte_tmds_check_xnor1_return
 
+dc_balance_tmds_byte:
+    push {r1-r8, lr}
+    mov r6, r1
+    mov r4, #5
+    mov r2, r0 // save tmds byte
+    mvn r5, r0
+    ubfx r3, r0, #8, #1
+    bfi r5, r3, #8, #1
+
+    bl convert_byte_tmds_count_1s
+    mov r3, r0
+    
+    mov r0, r5
+    bl convert_byte_tmds_count_1s
+    sub r0, r0, r4
+    ldr r1, =disparity
+    ldr r1, [r1, r6]
+    add r0, r0, r1
+    mov r7, r0
+    bl get_abs
+
+    sub r3, r3, r4
+    add r8, r3, r1
+    push {r0}
+    mov r0, r8
+    bl get_abs
+    mov r1, r0
+    pop {r0}
+    
+
+    ldr r3, =disparity
+    cmp r0, r1
+    bgt convert_byte_tmds_flip
+    str r7, [r3, r6]
+    mov r0, r5
+    b convert_byte_tmds_done_done
+
+    convert_byte_tmds_flip:
+    str r8, [r3, r6]
+    mov r0, r2
+
+    convert_byte_tmds_done_done:
+
+    pop {r1-r8, lr}
+
+    bx lr
 
 convert_byte_tmds_count_1s:
     push {r2-r4, lr}
@@ -2804,20 +2864,20 @@ inhale_new_image: // uint32 old_frame_length
     // inhale image
     mov r6, #0 // image pos
     mov r5, #0 // last item
-    mov r4, #0 // quantity
+    mov r4, #1 // quantity
     inhale_new_image_data:
-        mov r0, #19
+        mov r0, #2
         mov r1, #0
         bl gpio_put_asm
         ldr r0, =0x40070000
         mov r1, r11
         mov r2, #1
         bl uart_read
-        mov r0, #19
+        mov r0, #2
         mov r1, #1
         bl gpio_put_asm
 
-        ldr r0, [r11]
+        ldrb r0, [r11]
         cmp r0, r5
         beq inhale_new_image_data_same_value
         b inhale_new_image_data_different_value
@@ -2833,22 +2893,27 @@ inhale_new_image: // uint32 old_frame_length
     bx lr
 
 inhale_new_image_data_same_value:
-    cmp r4, #255
+    cmp r4, #0xff
     blt inhale_new_image_data_same_value_jmp
 
+    sub r4, r4, #1
     strb r4, [r10], #1
     strb r5, [r10], #1
-    mov r4, #0
+    mov r4, #1
 
     inhale_new_image_data_same_value_jmp:
     add r4, r4, #1
     b inhale_new_image_data_return
 
 inhale_new_image_data_different_value:
+    cmp r6, #0
+    beq inhale_new_image_data_different_value_skip
     strb r4, [r10], #1
     strb r5, [r10], #1
+    inhale_new_image_data_different_value_skip:
     mov r4, #1
     mov r5, r0
+    
     b inhale_new_image_data_return
 
 gpio_put_asm:
@@ -2858,6 +2923,14 @@ gpio_put_asm:
     pop {r0-r12, lr}
     bx lr
 
+get_abs:
+    push {r1}
+    asr r1, r0, #31
+    eor r0, r0, r1
+    sub r0, r0, r1
+    pop {r1}
+    bx lr
+
 image_too_large:
     ldr r0, =0x40070000
     ldr r1, =image_too_large_text
@@ -2865,35 +2938,19 @@ image_too_large:
     bl uart_send
     bx lr
 
-load_sync_tmds_bytes:   
-    // r0 = pointer to memmory buffer, r1 = amount of loops in pixel count, 
-    // r2 = control code, r3 = second control code set 0 if not used
-    // returns: r0, updated pointer
-
-    mov r5, r0
-    mvn r4, r2
-
-    cmp r3, #0
-    mov r6, r2
-    mov r7, r4
-    beq load_sync_tmds_bytes_skip_second_value
-    mvn r6, r3
-    mvn r7, r3
-
-    load_sync_tmds_bytes_skip_second_value:
-
+load_sync_tmds_bytes:  
+    mvn r3, r2
+    mvn r5, r4
+    mvn r7, r6
     load_sync_tmds_bytes_loop_1:
         subs r1, r1, #1
-        strh r2, [r5]
-        strh r4, [r5, #2]
-        strh r6, [r5, #4]
-        strh r7, [r5, #6]
-        strh r6, [r5, #8]
-        strh r7, [r5, #10]
-        add r5, r5, #12
+        strh r2, [r0], #2
+        strh r3, [r0], #2
+        strh r4, [r0], #2
+        strh r5, [r0], #2
+        strh r6, [r0], #2
+        strh r7, [r0], #2
         bgt load_sync_tmds_bytes_loop_1
-
-    mov r0, r5
     bx lr
 
 create_blanking_lines_tmds_bytes:
@@ -2905,61 +2962,77 @@ create_blanking_lines_tmds_bytes:
     */
 
     /*
-        H-sync On: 0x354 (binary 1101010100).
-        V-sync On: 0x0AA (binary 0010101010).
-        Both Off: 0x0AB (binary 0010101011).
-        Both On: 0x355 (binary 1101010101).
+        #define TMDS_CTRL_00 0x354
+        #define TMDS_CTRL_01 0x0ab
+        #define TMDS_CTRL_10 0x154
+        #define TMDS_CTRL_11 0x2ab
+
+        #define SYNC_V0_H0 (TMDS_CTRL_00 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+        #define SYNC_V0_H1 (TMDS_CTRL_01 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+        #define SYNC_V1_H0 (TMDS_CTRL_10 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+        #define SYNC_V1_H1 (TMDS_CTRL_11 | (TMDS_CTRL_00 << 10) | (TMDS_CTRL_00 << 20))
+
+
     */
 
     // line: v-sync front/back porch with h-sync
     ldr r0, =v_sync_line
-    mov r1, #656 // screen width + horizontal front porch
-    mov r2, #0b0010101011
-    mov r3, #0
+    mov r1, #16
+    mov r2, #0x2ab
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     mov r1, #96
-    mov r2, #0b1101010100
-    mov r3, #0b0010101011
+    mov r2, #0x154
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
-    mov r1, #48
-    mov r2, #0b0010101011
-    mov r3, #0
+    mov r1, #688
+    mov r2, #0x2ab
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     // line: v-sync & h-sync
     ldr r0, =v_sync_h_sync_line
-    mov r1, #656 // screen width + horizontal front porch
-    mov r2, #0b0010101011
-    mov r3, #0
+    mov r1, #16
+    mov r2, #0xab
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     mov r1, #96
-    mov r2, #0b1101010101
-    mov r3, #0b0010101011
+    mov r2, #0x354
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
-    mov r1, #48
-    mov r2, #0b0010101011
-    mov r3, #0
+    mov r1, #688
+    mov r2, #0xab
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     // line: h-sync only (to be added to data line)
     ldr r0, =h_sync_line
     mov r1, #16
-    mov r2, #0b0010101011
-    mov r3, #0
+    mov r2, #0x2ab
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     mov r1, #96
-    mov r2, #0b1101010100
-    mov r3, #0b0010101011
+    mov r2, #0x154
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     mov r1, #48
-    mov r2, #0b0010101011
-    mov r3, #0
+    mov r2, #0x2ab
+    mov r4, #0x354
+    mov r6, #0x354
     bl load_sync_tmds_bytes
 
     pop {r0-r7, lr}
@@ -3029,7 +3102,7 @@ start_sync_state_machines:
     mov r1, #0b1111
     mov r2, #0b111
     mov r3, #0
-    blx pio_enable_sm_mask_in_sync_asm
+    blx pio_enable_sm_multi_mask_in_sync_asm
     pop {r0-r12, lr}
     bx lr
 
@@ -3081,7 +3154,7 @@ store_tmds_flash:
 
     ldr r0, =amount_of_lines
     ldr r0, [r0]
-    add r0, r0, #1
+    add r0, r0, #1 // TODO this should be 4. also, if quantity_of_lines % 4 != 0 then this number will be inaccurate
     ldr r1, =amount_of_lines
     str r0, [r1]
     store_tmds_flash_end:
@@ -3089,16 +3162,12 @@ store_tmds_flash:
     bx lr
 
 wait_dma: // dma channel
-    push {lr}
+    push {r0, r3, lr}
     mov r2, r0
-    ldr r1, =dma_channel_is_busy_asm
-
-    wait_dma_loop:
-        mov r0, r2
-        blx r1
-        cmp r0, #1
-        beq wait_dma_loop
-    pop {lr}
+    ldr r1, =dma_channel_wait_for_finish_blocking_asm
+    blx r1
+    
+    pop {r0, r3, lr}
     bx lr
 
 wait_pio: // r0 = pio, r1 = sm
@@ -3108,8 +3177,8 @@ wait_pio: // r0 = pio, r1 = sm
     wait_pio_loop:
         mov r0, r3
         blx r2
-        cmp r0, #8
-        beq wait_pio_loop
+        cmp r0, #4
+        bgt wait_pio_loop
     pop {r0-r12,lr}
     bx lr
 
@@ -3117,16 +3186,11 @@ extract_rhl: // params: r0 = quantity, r2 = last_data, r1 = mem_pointer; returns
     cmp r0, #0
     bgt extract_rhl_same_value
 
-    extract_rhl_reload:
     ldrb r0, [r1], #1
     ldrb r2, [r1], #1
-    cmp r0, #0
-    beq extract_rhl_reload
-    b extract_rhl_end
 
     extract_rhl_same_value:
     sub r0, r0, #1
-    extract_rhl_end:
     bx lr
 
 get_hash_from_buffer: // simple hash. r0 = mem pointer, r1 = buff length
@@ -3254,7 +3318,7 @@ main_case_1_str_hash_mem_flash: // r0 = line buff, r1 = selected line pointers (
     bx lr
 
 main_case_1_store_buffers:
-    push {r0,r1,lr}
+    push {r0-r3,lr}
 
     ldr r0, =frame_buff_red
     ldr r1, =frame_line_pointers
@@ -3275,7 +3339,6 @@ main_case_1_store_buffers:
     bl main_case_1_str_hash_mem_flash
 
     ldr r0, =frame_buff_green
-    ldr r0, =frame_buff_red_not
     ldr r1, =frame_line_pointers
     ldr r3, =frame_line_pointers_offset
     ldr r2, [r3, #8]
@@ -3285,7 +3348,6 @@ main_case_1_store_buffers:
     bl main_case_1_str_hash_mem_flash
 
     ldr r0, =frame_buff_green_not
-    ldr r0, =frame_buff_red_not
     ldr r1, =frame_line_pointers
     ldr r3, =frame_line_pointers_offset
     ldr r2, [r3, #12]
@@ -3312,7 +3374,7 @@ main_case_1_store_buffers:
     str r2, [r3, #20]
     bl main_case_1_str_hash_mem_flash
 
-    pop {r0,r1,lr}
+    pop {r0-r3,lr}
     bx lr
 
 main_loop_case_1_cant_load_image_into_flash:
@@ -3468,6 +3530,55 @@ init_frame_pointer_offset:
     pop {r0-r1}
     bx lr
 
+print_time: // r0 = initial time
+    push {r0-r3, r8, lr}
+    mov r8, r0
+    ldr r2, =time_us_32_asm
+    blx r2
+    mov r1, r8
+    sub r2, r0, r1
+    
+    ldr r0, =image_line_time
+    ldr r1, =output_mem
+    bl load_string_mem_pointer
+
+    mov r8, r1
+    mov r1, r2
+    bl convert_int_to_ascii_and_store
+    mov r2, r8
+
+    mov r0, #10
+    strb r0, [r2]
+    add r2, r2, #1
+    ldr r1, =output_mem
+    sub r2, r2, r1
+    ldr r0, =0x40070000
+    bl uart_send
+    pop {r0-r3, r8, lr}
+    bx lr
+
+print_int: // r0 = int
+    push {r0-r3, r8, lr}
+    mov r2, r0
+    ldr r0, =value_text
+    ldr r1, =output_mem
+    bl load_string_mem_pointer
+
+    mov r8, r1
+    mov r1, r2
+    bl convert_int_to_ascii_and_store
+    mov r2, r8
+
+    mov r0, #10
+    strb r0, [r2]
+    add r2, r2, #1
+    ldr r1, =output_mem
+    sub r2, r2, r1
+    ldr r0, =0x40070000
+    bl uart_send
+    pop {r0-r3, r8, lr}
+    bx lr
+
 
 main_asm:
     push {lr} //save the initial call pointer hopefully
@@ -3504,9 +3615,10 @@ main_asm:
     // pin, state machine, pio. returns dreq // enum dreq_num_rp2350 dreq, &tx_buff, &rx_buff, size. returns dma_chan
     ldr r4, =dma_chan_mem
 
-    mov r0, #8 // pin
+    mov r0, #12 // pin
     mov r1, #0 // state machine
     ldr r2, =0x50200000 // pio
+    mov r3, #1
     bl setup_pio
     mov r5, r0
 
@@ -3515,190 +3627,85 @@ main_asm:
     mov r3, #800
     bl setup_dma
     str r0, [r4]
-    mov r6, r0
-    mov r7, r1
 
-    mov r0, r5
-    ldr r1, =0x50200010
+
+    mov r0, #13 // start pin
+    mov r1, #1 // state machine
+    ldr r2, =0x50200000 // pio
+    mov r3, #2
+    bl setup_pio
+    mov r5, r0
+
+    ldr r1, =0x50200014
     mov r2, #0
     mov r3, #800
     bl setup_dma
     str r0, [r4, #4]
-    mov r5, r1
-
-    mov r1, r0
-    mov r0, r7
-    bl channel_config_set_chain_to_asm // first
-
-    mov r0, r5
-    mov r1, r6
-    bl channel_config_set_chain_to_asm // second
 
 
-    mov r0, #9 // start pin
-    mov r1, #1 // state machine
+    mov r0, #18 // pin
+    mov r1, #2 // state machine
     ldr r2, =0x50200000 // pio
+    mov r3, #3
     bl setup_pio
     mov r5, r0
 
-    ldr r1, =0x50200014
+    ldr r1, =0x50200018
     mov r2, #0
     mov r3, #800
     bl setup_dma
     str r0, [r4, #8]
-    mov r6, r0
-    mov r7, r1
 
-    mov r0, r5
-    ldr r1, =0x50200014
+
+    mov r0, #19 // pin
+    mov r1, #3 // state machine
+    ldr r2, =0x50200000 // pio
+    mov r3, #4
+    bl setup_pio
+    mov r5, r0
+
+    ldr r1, =0x5020001c
     mov r2, #0
     mov r3, #800
     bl setup_dma
     str r0, [r4, #12]
-    mov r5, r1
-
-    mov r1, r0
-    mov r0, r7
-    bl channel_config_set_chain_to_asm // first
-
-    mov r0, r5
-    mov r1, r6
-    bl channel_config_set_chain_to_asm // second
 
 
-    mov r0, #10 // pin
-    mov r1, #2 // state machine
-    ldr r2, =0x50200000 // pio
+    mov r0, #16 // pin
+    mov r1, #0 // state machine
+    ldr r2, =0x50300000 // pio
+    mov r3, #5
     bl setup_pio
     mov r5, r0
 
-    ldr r1, =0x50200018
+    ldr r1, =0x50300010
     mov r2, #0
     mov r3, #800
     bl setup_dma
     str r0, [r4, #16]
-    mov r6, r0
-    mov r7, r1
 
-    mov r0, r5
-    ldr r1, =0x50200018
+
+    mov r0, #17 // pin
+    mov r1, #1 // state machine
+    ldr r2, =0x50300000 // pio
+    mov r3, #6
+    bl setup_pio
+    mov r5, r0
+
+    ldr r1, =0x50300014
     mov r2, #0
     mov r3, #800
     bl setup_dma
     str r0, [r4, #20]
-    mov r5, r1
-
-    mov r1, r0
-    mov r0, r7
-    bl channel_config_set_chain_to_asm // first
-
-    mov r0, r5
-    mov r1, r6
-    bl channel_config_set_chain_to_asm // second
-
-
-    mov r0, #11 // pin
-    mov r1, #3 // state machine
-    ldr r2, =0x50200000 // pio
-    bl setup_pio
-    mov r5, r0
-
-    ldr r1, =0x5020001c
-    mov r2, #0
-    mov r3, #800
-    bl setup_dma
-    str r0, [r4, #24]
-    mov r6, r0
-    mov r7, r1
-
-    mov r0, r5
-    ldr r1, =0x5020001c
-    mov r2, #0
-    mov r3, #800
-    bl setup_dma
-    str r0, [r4, #28]
-    mov r5, r1
-
-    mov r1, r0
-    mov r0, r7
-    bl channel_config_set_chain_to_asm // first
-
-    mov r0, r5
-    mov r1, r6
-    bl channel_config_set_chain_to_asm // second
-
-
-    mov r0, #12 // pin
-    mov r1, #0 // state machine
-    ldr r2, =0x50300000 // pio
-    bl setup_pio
-    mov r5, r0
-
-    ldr r1, =0x50300010
-    mov r2, #0
-    mov r3, #800
-    bl setup_dma
-    str r0, [r4, #32]
-    mov r6, r0
-    mov r7, r1
-
-    mov r0, r5
-    ldr r1, =0x50300010
-    mov r2, #0
-    mov r3, #800
-    bl setup_dma
-    str r0, [r4, #36]
-    mov r5, r1
-
-    mov r1, r0
-    mov r0, r7
-    bl channel_config_set_chain_to_asm // first
-
-    mov r0, r5
-    mov r1, r6
-    bl channel_config_set_chain_to_asm // second
-
-
-    mov r0, #13 // pin
-    mov r1, #1 // state machine
-    ldr r2, =0x50300000 // pio
-    bl setup_pio
-    mov r5, r0
-
-    ldr r1, =0x50300014
-    mov r2, #0
-    mov r3, #800
-    bl setup_dma
-    str r0, [r4, #40]
-    mov r6, r0
-    mov r7, r1
-
-    mov r0, r5
-    ldr r1, =0x50300014
-    mov r2, #0
-    mov r3, #800
-    bl setup_dma
-    str r0, [r4, #44]
-    mov r5, r1
-
-    mov r1, r0
-    mov r0, r7
-    bl channel_config_set_chain_to_asm // first
-
-    mov r0, r5
-    mov r1, r6
-    bl channel_config_set_chain_to_asm // second
 
 
     mov r0, #14 // start pin
-    mov r1, #2 // count of pins
-    mov r3, #2 // state machine
+    mov r1, #2 // state machine
     ldr r2, =0x50300000 // pio
     push {lr}
     bl setup_pio_clock_pin
     pop {lr}
 
-    // TODO make dynamic
     mov r9, #480 // screen hight
     mov r10, #640 // screen width
 
@@ -3733,11 +3740,11 @@ main_asm:
     ldr r2, =uart_init
     blx r2
 
-    mov r0, #19
+    mov r0, #2
     ldr r1, =gpio_init
     blx r1
 
-    mov r0, #19
+    mov r0, #2
     mov r1, #1
     ldr r2, =gpio_set_dir_asm
     blx r2
@@ -3772,13 +3779,15 @@ main_asm:
     mov r1, #0
     str r1, [r0]
 
+    // TODO add logic to check that the monitor is detected on gpio 7
+
 
 // loop
 main_loop:
     // uart write
     ldr r0, =0x40070000
     ldr r1, =message_output_startup
-    mov r2, #304
+    mov r2, #334
     bl uart_send
 
     // uart read
@@ -3826,8 +3835,10 @@ main_loop:
 
     b main_loop
 
+// TODO use dma to invert half-words for the tmds- lines. this will cut ram footprint in half.
 
 main_loop_case_1: // run length decode image from ram and store in flash &|| load into ram
+    // TODO i need to make the control codes and sync go first. otherwise the first frame is skipped.
     push {r0-r12, lr}
 
     ldr r0, =time_us_32_asm
@@ -3844,88 +3855,6 @@ main_loop_case_1: // run length decode image from ram and store in flash &|| loa
     bl reset_hash_mem
 
     bl init_frame_pointer_offset
-    
-    mov r12, #0
-    mov r0, #0
-    ldr r1, =frame_buff
-    main_loop_case_1_outer_loop:
-        mov r11, #2 
-        mov r4, #0
-        ldr r5, =frame_buff_red
-        ldr r6, =frame_buff_red_not
-        ldr r7, =frame_buff_green
-        ldr r8, =frame_buff_green_not
-        ldr r9, =frame_buff_blue
-        ldr r10, =frame_buff_blue_not
-        main_loop_case_1_data_loop:
-            ldr r3, =tmds_9bit_mem
-
-            bl extract_rhl // TODO put tmds look in this function so that it doesnt get repeated over and over. slight perf boost
-            push {r2}
-            mul r2, r2, r11
-            ldrh r2, [r3, r2]
-            strh r2, [r5], #2
-            mvn r2, r2
-            strh r2, [r6], #2
-            pop {r2}
-
-            bl extract_rhl
-            push {r2}
-            mul r2, r2, r11
-            ldrh r2, [r3, r2]
-            strh r2, [r7], #2
-            mvn r2, r2
-            strh r2, [r8], #2
-            pop {r2}
-
-            bl extract_rhl
-            push {r2}
-            mul r2, r2, r11
-            ldrh r2, [r3, r2]
-            strh r2, [r9], #2
-            mvn r2, r2
-            strh r2, [r10], #2
-            pop {r2}
-
-            add r4, r4, #1
-            cmp r4, #640
-            blt main_loop_case_1_data_loop
-
-        push {r2}
-
-        // h-sync
-        mov r4, #0
-        ldr r11, =h_sync_line
-        main_loop_case_1_hsync_bytes:
-            ldrh r2, [r11], #2
-            strh r2, [r5], #2      
-
-            ldrh r2, [r11], #2
-            strh r2, [r6], #2
-
-            ldrh r2, [r11], #2
-            strh r2, [r7], #2
-
-            ldrh r2, [r11], #2
-            strh r2, [r8], #2
-
-            ldrh r2, [r11], #2
-            strh r2, [r9], #2
-
-            ldrh r2, [r11], #2
-            strh r2, [r10], #2
-
-            add r4, r4, #1
-            cmp r4, #160
-            blt main_loop_case_1_hsync_bytes
-
-        pop {r2}
-
-        bl main_case_1_store_buffers
-
-        add r12, r12, #1
-        cmp r12, #480 // check height
-        blt main_loop_case_1_outer_loop
 
     // v-sync front porch
     mov r12, #0
@@ -4046,6 +3975,119 @@ main_loop_case_1: // run length decode image from ram and store in flash &|| loa
         add r12, r12, #1
         cmp r12, #33 // amount of lines
         blt main_loop_case_1_vsync_back_porch_loop
+        
+    
+    mov r12, #0
+    mov r0, #0
+    ldr r1, =frame_buff
+    main_loop_case_1_outer_loop:
+        ldr r5, =frame_buff_red
+        ldr r6, =frame_buff_red_not
+        ldr r7, =frame_buff_green
+        ldr r8, =frame_buff_green_not
+        ldr r9, =frame_buff_blue
+        ldr r10, =frame_buff_blue_not
+
+        push {r2}
+        // h-sync
+        mov r4, #0
+        ldr r11, =h_sync_line
+        main_loop_case_1_hsync_bytes:
+            ldrh r2, [r11], #2
+            strh r2, [r5], #2      
+
+            ldrh r2, [r11], #2
+            strh r2, [r6], #2
+
+            ldrh r2, [r11], #2
+            strh r2, [r7], #2
+
+            ldrh r2, [r11], #2
+            strh r2, [r8], #2
+
+            ldrh r2, [r11], #2
+            strh r2, [r9], #2
+
+            ldrh r2, [r11], #2
+            strh r2, [r10], #2
+
+            add r4, r4, #1
+            cmp r4, #160
+            blt main_loop_case_1_hsync_bytes
+        pop {r2}
+
+        mov r11, #2 
+        mov r4, #0
+        main_loop_case_1_data_loop:
+            ldr r3, =tmds_9bit_mem
+
+            bl extract_rhl // TODO put tmds look in this function so that it doesnt get repeated over and over. slight perf boost
+            //mov r2, #255 // red
+            push {r2}
+            mul r2, r2, r11
+            ldrh r2, [r3, r2]
+
+            push {r0, r1}
+            mov r0, r2
+            mov r1, #0
+            bl dc_balance_tmds_byte
+            mov r2, r0
+            pop {r0, r1}
+            //mov r2, #0b1000000001
+            strh r2, [r9], #2
+
+            mvn r2, r2
+            strh r2, [r10], #2
+            pop {r2}
+
+            bl extract_rhl
+            //mov r2, #51 // green
+            push {r2}
+            mul r2, r2, r11
+            ldrh r2, [r3, r2]
+
+            push {r0, r1}
+            mov r0, r2
+            mov r1, #4
+            bl dc_balance_tmds_byte
+            mov r2, r0
+            pop {r0, r1}
+            //mov r2, #0b1011111110
+            strh r2, [r7], #2
+
+            mvn r2, r2
+            strh r2, [r8], #2
+            pop {r2}
+
+            bl extract_rhl
+            //mov r2, #153 // blue
+            push {r2}
+            mul r2, r2, r11
+            ldrh r2, [r3, r2]
+
+            push {r0, r1}
+            mov r0, r2
+            mov r1, #8
+            bl dc_balance_tmds_byte
+            mov r2, r0
+            pop {r0, r1}
+            //mov r2, #0b1011111110
+            strh r2, [r5], #2
+
+            mvn r2, r2
+            strh r2, [r6], #2
+
+            pop {r2}
+
+            add r4, r4, #1
+            cmp r4, #640
+            blt main_loop_case_1_data_loop
+
+        bl main_case_1_store_buffers
+
+        add r12, r12, #1
+        cmp r12, #480 // check height
+        blt main_loop_case_1_outer_loop
 
  
     // cheesed. this forces frash_store_mem to store the last chunk of image.
@@ -4113,7 +4155,7 @@ main_loop_case_1: // run length decode image from ram and store in flash &|| loa
 
     main_loop_case_1_cant_load_image_into_flash_return:
 
-    // TODO add stuff to load from flash as well as ram
+    // TODO add stuff to load from flash as well as ram (actually i might not do that...)
 
     ldr r2, =time_us_32_asm
     blx r2
@@ -4225,8 +4267,32 @@ main_loop_case_7: // test pio
 
     b main_loop
 
-main_loop_case_8: // nothing
+main_loop_case_8: // run length decode and print
 
+    mov r0, #0
+    ldr r1, =frame_buff
+    mov r2, #0
+    mov r4, #0
+    ldr r5, =921600
+
+    main_loop_case_8_loop:
+        bl extract_rhl
+        ldr r3, =edid_mem
+        add r3, r3, #256
+        strb r2, [r3]
+
+        push {r0-r2}
+        // print result
+        ldr r0, =0x40070000
+        ldr r1, =edid_mem
+        add r1, r1, #256
+        mov r2, #1
+        bl uart_send
+        pop {r0-r2}
+
+        add r4, r4, #1
+        cmp r4, r5
+        blt main_loop_case_8_loop
     b main_loop
 
 main_loop_case_9: // print hash map
@@ -4297,191 +4363,144 @@ main_loop_case_10: // send image
     mov r1, #0
     strb r1, [r0]
 
-    ldr r0, =dma_mem_set_one_bool
-    mov r1, #0
-    strb r1, [r0]
+    ldr r6, =0x4000000
 
-    mov r3, #0
-    main_loop_case_10_outer_loop:
-        ldr r7, =frame_line_pointers
-        add r8, r7, #2730
-        add r9, r8, #2730
-        add r10, r9, #2730
-        add r11, r10, #2730
-        add r12, r11, #2730
+    main_loop_case_10_1_second_loop:
 
-        ldr r6, =dma_channel_change_read_address
-        ldr r5, =dma_chan_mem
-
-        ldr r0, =time_us_32_asm
-        push {r3}
-        blx r0
-        pop {r3}
+        /*push {r3}
+        blx time_us_32_asm
         ldr r1, =scratch_mem
+        add r1, r1, #8
         str r0, [r1]
+        pop {r3} //*/
 
-        mov r4, #0
-        push {r3}
-        mov r3, #525
-        main_loop_case_10_frame_loop:
+        mov r3, #0
+        main_loop_case_10_outer_loop:
+            ldr r7, =frame_line_pointers
+            add r7, r7, #2096
+            add r8, r7, #2730
+            add r9, r8, #2730
+            add r10, r9, #2730
+            add r11, r10, #2730
+            add r12, r11, #2730
+
+            /*push {r3}
+            blx time_us_32_asm
+            ldr r1, =scratch_mem
+            str r0, [r1, #4]
+            pop {r3}//*/
+
+            mov r4, #0
             push {r3}
-            ldr r0, [r5] // channel
-            ldr r1, [r7], #4 // buff
-            mov r2, #1
-            blx r6
+            mov r3, #525
 
-            ldr r0, [r5, #8] // channel
-            ldr r1, [r8], #4 // buff
-            mov r2, #1
-            blx r6
+            main_loop_case_10_frame_loop:
+                push {r3}
+                ldr r1, [r7], #-4 // buff
+                ldr r2, =0x50000010 // ctrl
+                ldr r3, =0x5000003c // trigger
+                main_loop_case_10_frame_loop_while1:
+                    ldr r0, [r2]
+                    ands r0, r0, r6
+                    bne main_loop_case_10_frame_loop_while1
+                str r1, [r3]
 
-            ldr r0, [r5, #16] // channel
-            ldr r1, [r9], #4 // buff
-            mov r2, #1
-            blx r6
+                ldr r1, [r8], #-4 // buff
+                ldr r2, =0x50000050 // ctrl
+                ldr r3, =0x5000007c // trigger
+                main_loop_case_10_frame_loop_while2:
+                    ldr r0, [r2]
+                    ands r0, r0, r6
+                    bne main_loop_case_10_frame_loop_while2
+                str r1, [r3]
 
-            ldr r0, [r5, #24] // channel
-            ldr r1, [r10], #4 // buff
-            mov r2, #1
-            blx r6
+                ldr r1, [r9], #-4 // buff
+                ldr r2, =0x50000090 // ctrl
+                ldr r3, =0x500000bc // trigger
+                main_loop_case_10_frame_loop_while3:
+                    ldr r0, [r2]
+                    ands r0, r0, r6
+                    bne main_loop_case_10_frame_loop_while3
+                str r1, [r3]
 
-            ldr r0, [r5, #32] // channel
-            ldr r1, [r11], #4 // buff
-            mov r2, #1
-            blx r6
+                ldr r1, [r10], #-4 // buff
+                ldr r2, =0x500000fc // ctrl
+                ldr r3, =0x500000d0 // trigger
+                main_loop_case_10_frame_loop_while4:
+                    ldr r0, [r2]
+                    ands r0, r0, r6
+                    bne main_loop_case_10_frame_loop_while4
+                str r1, [r3]
 
-            ldr r0, [r5, #40] // channel
-            ldr r1, [r12], #4 // buff
-            mov r2, #1
-            blx r6
+                ldr r1, [r11], #-4 // buff
+                ldr r2, =0x50000110 // ctrl
+                ldr r3, =0x5000013c // trigger
+                main_loop_case_10_frame_loop_while5:
+                    ldr r0, [r2]
+                    ands r0, r0, r6
+                    bne main_loop_case_10_frame_loop_while5
+                str r1, [r3]
 
-            ldr r0, =dma_mem_set_one_bool
-            ldrb r1, [r0]
-            cmp r1, #0 // pio isnt running
-            beq main_loop_case_10_frame_loop_skip_wait_dma_1
-            ldr r0, [r5, #44]
-            bl wait_dma
-            main_loop_case_10_frame_loop_skip_wait_dma_1:
+                ldr r1, [r12], #-4 // buff
+                ldr r2, =0x50000150 // ctrl
+                ldr r3, =0x5000017c // trigger
+                main_loop_case_10_frame_loop_while6:
+                    ldr r0, [r2]
+                    ands r0, r0, r6
+                    bne main_loop_case_10_frame_loop_while6
+                str r1, [r3]
 
-            pop {r3}
-            add r4, r4, #1
-            cmp r4, r3
-            bge main_loop_case_10_frame_loop_end 
+                ldr r0, =pio_is_running_bool
+                ldr r1, [r0]
+                cmp r1, #1 // pio is running
+                beq main_loop_case_10_frame_loop_skip_state_machine
+                mov r1, #1
+                strb r1, [r0]
+                bl start_sync_state_machines // porbably need to move/change this
+                main_loop_case_10_frame_loop_skip_state_machine:
 
-            push {r3}
-            ldr r0, [r5, #4] // channel
-            ldr r1, [r7], #4 // buff
-            mov r2, #1
-            blx r6
+                pop {r3}
+                add r4, r4, #1
+                cmp r4, r3
+                blt main_loop_case_10_frame_loop
 
-            ldr r0, [r5, #12] // channel
-            ldr r1, [r8], #4 // buff
-            mov r2, #1
-            blx r6
+            main_loop_case_10_frame_loop_end:
 
-            ldr r0, [r5, #20] // channel
-            ldr r1, [r9], #4 // buff
-            mov r2, #1
-            blx r6
-
-            ldr r0, [r5, #28] // channel
-            ldr r1, [r10], #4 // buff
-            mov r2, #1
-            blx r6
-
-            ldr r0, [r5, #36] // channel
-            ldr r1, [r11], #4 // buff
-            mov r2, #1
-            blx r6
-
-            ldr r0, [r5, #44] // channel
-            ldr r1, [r12], #4 // buff
-            mov r2, #1
-            blx r6
-
-            ldr r0, =dma_mem_set_one_bool
-            ldr r1, [r0]
-            cmp r1, #1 // pio is running
-            beq main_loop_case_10_frame_loop_skip_dma
-
-            mov r1, #1
-            strb r1, [r0]
             
-            ldr r0, [r5]
-            ldr r1, =dma_channel_start_asm
-            blx r1
+            /*push {r3}
+            blx time_us_32_asm
+            ldr r2, =scratch_mem
+            ldr r1, [r2, #4]
+            sub r0, r0, r1
 
-            ldr r0, [r5, #8]
-            blx r1
-            ldr r0, [r5, #16]
-            blx r1
-            ldr r0, [r5, #24]
-            blx r1
-            ldr r0, [r5, #32]
-            blx r1
-            ldr r0, [r5, #40]
-            blx r1
-            main_loop_case_10_frame_loop_skip_dma:
-
-            ldr r0, =pio_is_running_bool
-            ldr r1, [r0]
-            cmp r1, #1 // pio is running
-            beq main_loop_case_10_frame_loop_skip_state_machine
-            mov r1, #1
-            strb r1, [r0]
-            bl start_sync_state_machines // porbably need to move/change this
-            main_loop_case_10_frame_loop_skip_state_machine:
-
-            ldr r0, =dma_mem_set_one_bool
-            ldrb r1, [r0]
-            cmp r1, #0 // pio isnt running
-            beq main_loop_case_10_frame_loop_skip_wait_dma_2
-            ldr r0, [r5, #40]
-            bl wait_dma
-            main_loop_case_10_frame_loop_skip_wait_dma_2:
-           
+            ldr r1, [r2, #12]
+            add r0, r0, r1
+            str r0, [r2, #12]
+            pop {r3}//*/
 
             pop {r3}
-            add r4, r4, #1
-            cmp r4, r3
-            blt main_loop_case_10_frame_loop
 
-        main_loop_case_10_frame_loop_end:
+            add r3, r3, #1
+            cmp r3, #60
+            blt main_loop_case_10_outer_loop
 
-        pop {r3}
+        /*ldr r2, =scratch_mem
+        ldr r0, [r2, #12]
+        mov r1, #60
+        udiv r0, r0, r1
+        bl print_int
+        mov r0, #0
+        str r0, [r2, #12]
 
-        push {r3}
-        ldr r2, =time_us_32_asm
-        blx r2
-        ldr r1, =scratch_mem
-        ldr r1, [r1]
-        sub r2, r0, r1
-        pop {r3}
-        
-        ldr r0, =image_line_time
-        ldr r1, =output_mem
-        bl load_string_mem_pointer
+        ldr r0, =scratch_mem
+        add r0, r0, #8
+        ldr r0, [r0]
+        bl print_time //*/
 
-        mov r8, r1
-        mov r1, r2
-        bl convert_int_to_ascii_and_store
-        mov r2, r8
-
-        mov r0, #10
-        strb r0, [r2]
-        add r2, r2, #1
-        ldr r1, =output_mem
-        sub r2, r2, r1
-        ldr r0, =0x40070000
-        bl uart_send
-
-
-        add r3, r3, #1
-        cmp r3, #100
-        blt main_loop_case_10_outer_loop
+        b main_loop_case_10_1_second_loop
 
     pop {r0-r12,lr}
-    b main_loop
+    b main_loop //*/
 
 main_loop_case_11: // erase flash
     ldr r0, =0x10000
@@ -4499,7 +4518,6 @@ main_loop_case_11: // erase flash
     bl uart_send
 
     b main_loop
-
 
 exit:
     pop {lr} //call the initial call pointer hopefully
